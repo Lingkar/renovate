@@ -1,10 +1,10 @@
 import got from 'got';
-import { ClientSecretCredential } from '@azure/identity';
+import { DefaultAzureCredential } from '@azure/identity';
 
 import { logger } from '../../../logger';
 import { regEx } from '../../../util/regex';
 
-export const acrRegex = regEx(/^([a-zA-Z0-9]+)\.azurecr\.io$/);
+export const acrRegex = regEx(/^(?:https?:\/\/)?([a-zA-Z0-9-]+)\.azurecr\.io/);
 
 // Define the response type
 interface ACRRefreshTokenResponse {
@@ -18,45 +18,51 @@ interface ACRAccessTokenResponse {
 export async function getACRAuthToken(
   tenantId: string,
   registry: string,
-  clientId: string,
-  clientSecret: string,
+  scope: string | string[],
 ): Promise<string | null> {
-  const credentials: ClientSecretCredential = new ClientSecretCredential(
-    tenantId,
-    clientId,
-    clientSecret,
-  );
+  logger.info(`CHECK0`);
+  const credentials: DefaultAzureCredential = new DefaultAzureCredential();
 
+  logger.info(`CHECKA`);
   try {
     const accessToken = await credentials.getToken(
       'https://containerregistry.azure.net//.default',
     );
+
+    logger.info(
+      `CHECKB: access_token ${accessToken.token} \nregistry: ${registry}`,
+    );
     const dataACRRefreshToken = await got
-      .post(`https://${registry}/oauth2/exchange`, {
+      .post(`${registry}/oauth2/exchange`, {
         form: {
           grant_type: 'access_token',
-          service: registry,
+          service: 'jbuicommonregistrydkro.azurecr.io',
           tenant: tenantId,
           access_token: accessToken.token,
         },
       })
       .json<ACRRefreshTokenResponse>();
 
+    logger.info(`CHECKC: refresh_token ${dataACRRefreshToken.refresh_token}`);
     const ACRRefreshToken = dataACRRefreshToken.refresh_token;
 
-    // TODO:: We need to define the correct scope which is needed by renovate
-    // https://github.com/Azure/acr/blob/main/docs/AAD-OAuth.md#calling-post-oauth2token-to-get-an-acr-access-token
+    const scopes = Array.isArray(scope) ? scope.join(' ') : scope;
+
+    logger.info(`CHECKKK scopes format: ${scopes}`);
+
     const dataACRAccessToken = await got
-      .post(`https://${registry}/oauth2/token`, {
+      .post(`${registry}/oauth2/token`, {
         form: {
           grant_type: 'refresh_token',
-          service: registry,
+          service: 'jbuicommonregistrydkro.azurecr.io',
           tenant: tenantId,
           refresh_token: ACRRefreshToken,
-          scope: 'registry:catalog:*',
+          scope: scopes,
         },
       })
       .json<ACRAccessTokenResponse>();
+
+    logger.info(`CHECKD: access_token ${dataACRAccessToken.access_token}`);
 
     const ACRAccessToken = dataACRAccessToken.access_token;
     return ACRAccessToken;

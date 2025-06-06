@@ -32,6 +32,7 @@ import { ecrRegex, getECRAuthToken } from './ecr';
 import { googleRegex } from './google';
 import type { OciHelmConfig } from './schema';
 import type { RegistryRepository } from './types';
+import { acrRegex, getACRAuthToken } from './acr';
 
 export const dockerDatasourceId = 'docker';
 
@@ -55,6 +56,7 @@ export async function getAuthHeaders(
   dockerRepository: string,
   apiCheckUrl = `${registryHost}/v2/`,
 ): Promise<OutgoingHttpHeaders | null> {
+  logger.info('CHECK1: getAuthHeaders');
   try {
     const options = {
       throwHttpErrors: false,
@@ -91,6 +93,8 @@ export async function getAuthHeaders(
       apiCheckResponse.headers['www-authenticate'],
     );
 
+    logger.info(authenticateHeader, 'CHECKK authenticateHeader');
+
     const opts: HostRule & HttpOptions = hostRules.find({
       hostType: dockerDatasourceId,
       url: apiCheckUrl,
@@ -125,6 +129,33 @@ export async function getAuthHeaders(
           { registryHost, dockerRepository },
           'Could not get Google access token, using no auth',
         );
+      }
+    } else if (acrRegex.test(registryHost) && process.env.AZ_TENANT) {
+      logger.info('AZURE!!!');
+      logger.once.debug(`hostRules: azure auth for ${registryHost}`);
+      logger.trace(
+        { registryHost, dockerRepository },
+        `Using azure auth for Docker registry`,
+      );
+
+      var scopes = authenticateHeader.params.scopes;
+      if (!scopes) {
+        scopes = `repository:${dockerRepository}:pull`;
+      }
+
+      const auth = await getACRAuthToken(
+        process.env.AZ_TENANT,
+        registryHost,
+        scopes,
+      );
+      if (auth) {
+        addSecretForSanitizing(auth);
+        return {
+          authorization: `Bearer ${auth}`,
+        };
+      } else {
+        logger.warn('Failed to obtain docker registry token');
+        return null;
       }
     } else if (opts.username && opts.password) {
       logger.once.debug(`hostRules: basic auth for ${registryHost}`);
@@ -171,6 +202,8 @@ export async function getAuthHeaders(
     }
 
     const authUrl = new URL(`${authenticateHeader.params.realm}`);
+
+    logger.info(`CHECKKK apiCheckUrl: ${apiCheckUrl}`);
 
     // repo isn't known to server yet, so causing wrong scope `repository:user/image:pull`
     if (
