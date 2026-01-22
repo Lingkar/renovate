@@ -665,6 +665,8 @@ export class DockerDatasource extends Datasource {
       dockerRepository,
       url,
     );
+    logger.info({ url }, 'CHECKK index, url getDockerApiTags');
+    logger.info({ headers }, 'CHECKK headers, url getDockerApiTags');
     if (!headers) {
       logger.debug('Failed to get authHeaders for getTags lookup');
       return null;
